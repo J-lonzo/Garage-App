@@ -1,4 +1,4 @@
-const CACHE_NAME = "garage-cache-v5";
+const CACHE_NAME = "garage-cache-v6";
 const ASSETS = [
   "./",
   "./index.html",
@@ -27,19 +27,20 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Cache-first for app shell, network falling back to cache for everything else.
+// Network-first: always try to fetch the latest version when there's a
+// connection, so a new deploy shows up on the very next load instead of
+// waiting on the service worker's own update cycle (which is what made
+// updates lag behind on installed iOS home-screen apps). Falls back to
+// the cache only when the network request fails — i.e. offline.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => cached);
-    })
+    fetch(event.request, { cache: "no-store" })
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
