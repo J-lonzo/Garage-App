@@ -343,6 +343,19 @@ a { color: inherit; }
 }
 .vcard-chev svg { width: 18px; height: 18px; }
 
+.vcard { position: relative; }
+.vcard-reminder-dot {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--yellow);
+  border: 1.5px solid var(--paper-raised);
+}
+.vcard-reminder-dot.overdue { background: var(--rust); }
+
 /* ---------------- Overview spec rows ---------------- */
 
 .vehicle-hero {
@@ -544,6 +557,38 @@ a { color: inherit; }
   color: var(--ink);
   align-self: center;
 }
+
+.log-reminder {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 3px;
+}
+.log-reminder.overdue { color: var(--rust-dark); }
+.log-reminder.soon { color: var(--yellow); }
+.log-reminder.later { color: var(--steel-soft); font-weight: 500; }
+
+.maint-total {
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  font-size: 14px;
+  color: var(--steel);
+}
+.maint-total strong { color: var(--ink); font-family: "Oswald", sans-serif; font-size: 16px; }
+
+.reminder-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  border-radius: 999px;
+  align-self: center;
+}
+.reminder-badge.overdue { background: var(--rust-tint); color: var(--rust-dark); }
+.reminder-badge.soon { background: var(--yellow-tint); color: var(--yellow); }
 
 .note-row {
   display: block;

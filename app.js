@@ -193,6 +193,74 @@ function persistVehicle(v) {
 function newRefItem(label) {
   return { id: uid(), label, spec: "", brand: "", product: "", alternatives: "", capacity: "", notes: "", photo: null };
 }
+// Days until an ISO date (negative = in the past).
+function daysUntil(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  const target = new Date(y, (m || 1) - 1, d || 1);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86400000);
+}
+
+// Highest odometer/hours value logged for a vehicle, for a given odo type.
+function latestOdometer(v, odoType) {
+  let max = null;
+  for (const e of v.maintenance) {
+    if ((e.odoType || "miles") !== odoType) continue;
+    const n = parseFloat(e.odoValue);
+    if (!isNaN(n) && (max === null || n > max)) max = n;
+  }
+  return max;
+}
+
+// Reminder status for one maintenance entry, based on its own next-due
+// date/odometer fields — returns null if no reminder is set on the entry.
+function reminderInfo(entry, v) {
+  if (!entry.reminderDate && !entry.reminderOdo) return null;
+  let overdue = false, soon = false;
+  const parts = [];
+
+  if (entry.reminderDate) {
+    const days = daysUntil(entry.reminderDate);
+    if (days < 0) { overdue = true; parts.push(`${Math.abs(days)}d overdue`); }
+    else if (days <= 30) { soon = true; parts.push(days === 0 ? "due today" : `due in ${days}d`); }
+    else parts.push(`due ${formatDateLong(entry.reminderDate)}`);
+  }
+
+  if (entry.reminderOdo) {
+    const odoType = entry.odoType || "miles";
+    const unit = odoType === "hours" ? "hrs" : "mi";
+    const due = parseFloat(entry.reminderOdo);
+    const current = latestOdometer(v, odoType);
+    if (!isNaN(due)) {
+      if (current != null) {
+        const remaining = due - current;
+        const soonWindow = odoType === "hours" ? 20 : 500;
+        if (remaining < 0) { overdue = true; parts.push(`${Math.round(Math.abs(remaining)).toLocaleString()} ${unit} overdue`); }
+        else if (remaining <= soonWindow) { soon = true; parts.push(`due in ${Math.round(remaining).toLocaleString()} ${unit}`); }
+        else parts.push(`due at ${due.toLocaleString()} ${unit}`);
+      } else {
+        parts.push(`due at ${due.toLocaleString()} ${unit}`);
+      }
+    }
+  }
+
+  return { level: overdue ? "overdue" : soon ? "soon" : "later", text: parts.join(" · ") };
+}
+
+// Worst reminder level across a vehicle's whole service history, for the garage list badge.
+function vehicleReminderLevel(v) {
+  let level = null;
+  for (const e of v.maintenance) {
+    const info = reminderInfo(e, v);
+    if (!info) continue;
+    if (info.level === "overdue") return "overdue";
+    if (info.level === "soon") level = "soon";
+  }
+  return level;
+}
+
 function newVehicle({ type, nickname, year, make, model, trim }) {
   const now = Date.now();
   const d = DEFAULTS[type];
@@ -305,6 +373,7 @@ function renderGarageHTML() {
 function vehicleCardHTML(v) {
   const name = displayName(v);
   const meta = v.nickname ? vehicleTitle(v) : (v.trim || "");
+  const remLevel = vehicleReminderLevel(v);
   return `
   <button class="vcard" data-action="open-vehicle" data-id="${v.id}">
     <div class="vcard-bar type-${v.type}"></div>
@@ -314,6 +383,7 @@ function vehicleCardHTML(v) {
       ${meta ? `<div class="vcard-meta">${h(meta)}</div>` : ""}
       <div class="vcard-type-tag">${TYPE_META[v.type].icon}${TYPE_META[v.type].label}</div>
     </div>
+    ${remLevel ? `<span class="vcard-reminder-dot ${remLevel}" aria-label="${remLevel === "overdue" ? "Service overdue" : "Service due soon"}"></span>` : ""}
     <div class="vcard-chev">${ICONS.chevronRight}</div>
   </button>`;
 }
@@ -380,22 +450,47 @@ function refRowHTML(key, it) {
 
 function renderMaintenanceTab(v) {
   const list = [...v.maintenance].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const total = v.maintenance.reduce((sum, e) => {
+    const n = parseFloat(e.cost);
+    return isNaN(n) ? sum : sum + n;
+  }, 0);
+  const reminders = v.maintenance
+    .map((e) => ({ e, info: reminderInfo(e, v) }))
+    .filter((x) => x.info && (x.info.level === "overdue" || x.info.level === "soon"))
+    .sort((a, b) => (a.info.level === b.info.level ? 0 : a.info.level === "overdue" ? -1 : 1));
+
   return `
   <div style="padding:16px 16px 4px;">
     <button class="btn btn-primary" data-action="add-maintenance">${ICONS.plus}Log service</button>
   </div>
+  ${total > 0 ? `<div class="maint-total">Total spent&nbsp; <strong>$${total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong></div>` : ""}
+  ${reminders.length ? `
+  <div class="section-label">Reminders</div>
+  <div class="list-group">${reminders.map(({ e, info }) => reminderRowHTML(e, info)).join("")}</div>` : ""}
   ${list.length
-    ? `<div class="list-group" style="margin-top:8px;">${list.map((e) => maintRowHTML(e)).join("")}</div>`
+    ? `<div class="list-group" style="margin-top:8px;">${list.map((e) => maintRowHTML(e, v)).join("")}</div>`
     : `<div class="empty-hint">No service logged yet. Tap “Log service” to record your first oil change, tire rotation, or repair.</div>`}`;
 }
 
-function maintRowHTML(e) {
+function reminderRowHTML(e, info) {
+  return `<button class="row" data-action="open-maintenance" data-id="${e.id}">
+    <div class="row-main">
+      <div class="row-label">${h(e.service || "Service")}</div>
+      <div class="row-sub">${h(info.text)}</div>
+    </div>
+    <span class="reminder-badge ${info.level}">${info.level === "overdue" ? "Overdue" : "Due soon"}</span>
+    <div class="row-chev">${ICONS.chevronRight}</div>
+  </button>`;
+}
+
+function maintRowHTML(e, v) {
   const dp = formatDateParts(e.date);
   const odo = e.odoValue !== "" && e.odoValue != null
     ? `${Number(e.odoValue).toLocaleString()} ${e.odoType === "hours" ? "hrs" : "mi"}`
     : "No mileage recorded";
   const costNum = parseFloat(e.cost);
   const cost = !isNaN(costNum) ? `$${costNum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : "";
+  const info = reminderInfo(e, v);
   return `<button class="log-row" data-action="open-maintenance" data-id="${e.id}">
     <div class="log-date-block">
       <div class="log-date-month">${dp.month}</div>
@@ -406,7 +501,9 @@ function maintRowHTML(e) {
       <div class="log-service">${h(e.service || "Service logged")}</div>
       <div class="log-meta">${h(odo)}</div>
       ${e.products ? `<div class="log-products">${h(e.products)}</div>` : ""}
+      ${info ? `<div class="log-reminder ${info.level}">${h(info.text)}</div>` : ""}
     </div>
+    ${e.photo ? `<div class="row-thumb"><img src="${e.photo}" alt=""></div>` : ""}
     ${cost ? `<div class="log-cost">${cost}</div>` : ""}
   </button>`;
 }
@@ -486,9 +583,9 @@ function toast(msg) {
 
 /* ---------- form field builders ---------- */
 function fieldText(id, label, value = "", opts = {}) {
-  const { placeholder = "", type = "text" } = opts;
+  const { placeholder = "", type = "text", min } = opts;
   return `<div class="field"><label class="field-label" for="${id}">${h(label)}</label>
-    <input type="${type}" id="${id}" value="${h(value)}" placeholder="${h(placeholder)}"></div>`;
+    <input type="${type}" id="${id}" value="${h(value)}" placeholder="${h(placeholder)}"${min !== undefined ? ` min="${min}"` : ""}></div>`;
 }
 function fieldTextarea(id, label, value = "", opts = {}) {
   const { placeholder = "" } = opts;
@@ -746,10 +843,11 @@ function openMaintenanceSheet(v, entryId) {
   const isNew = !entryId;
   const defaultOdo = v.type === "dirtbike" ? "hours" : "miles";
   const entry = isNew
-    ? { date: todayISO(), odoType: defaultOdo, odoValue: "", service: "", products: "", cost: "", notes: "" }
+    ? { date: todayISO(), odoType: defaultOdo, odoValue: "", service: "", products: "", cost: "", notes: "", reminderDate: "", reminderOdo: "", photo: null }
     : v.maintenance.find((e) => e.id === entryId);
   if (!entry) return;
   let odoType = entry.odoType || defaultOdo;
+  let photoCtl;
 
   const body = `
     ${fieldText("mDate", "Date", entry.date, { type: "date" })}
@@ -760,23 +858,31 @@ function openMaintenanceSheet(v, entryId) {
         <button type="button" data-val="hours" class="${odoType === "hours" ? "active" : ""}">Hours</button>
       </div>
     </div>
-    ${fieldText("mOdoValue", odoType === "hours" ? "Engine hours" : "Mileage", entry.odoValue, { placeholder: "e.g. 84200", type: "number" })}
+    ${fieldText("mOdoValue", odoType === "hours" ? "Engine hours" : "Mileage", entry.odoValue, { placeholder: "e.g. 84200", type: "number", min: 0 })}
     ${fieldTextarea("mService", "Service performed", entry.service, { placeholder: "e.g. Oil change, rotated tires" })}
     ${fieldTextarea("mProducts", "Products used", entry.products, { placeholder: "e.g. Mobil 1 5W-30, Fram XG10575" })}
-    ${fieldText("mCost", "Cost", entry.cost, { placeholder: "e.g. 65.00", type: "number" })}
+    ${fieldText("mCost", "Cost", entry.cost, { placeholder: "e.g. 65.00", type: "number", min: 0 })}
     ${fieldTextarea("mNotes", "Notes", entry.notes, { placeholder: "Optional" })}
+    ${photoPickerHTML("mPhoto", entry.photo)}
+    <div class="section-label" style="padding-top:6px;">Remind me</div>
+    ${fieldText("mReminderDate", "Next due date", entry.reminderDate || "", { type: "date" })}
+    ${fieldText("mReminderOdo", odoType === "hours" ? "Next due hours" : "Next due mileage", entry.reminderOdo || "", { placeholder: "e.g. 87200", type: "number", min: 0 })}
+    <div class="field-hint" style="padding:0 16px 6px;">Optional — leave blank if you don't want a reminder for this service.</div>
     ${!isNew ? `<div class="btn-row"><button type="button" class="btn btn-danger" id="delMBtn">${ICONS.trash}Delete entry</button></div>` : ""}`;
 
   showSheet({
     title: isNew ? "Log service" : "Edit service entry",
     bodyHtml: body,
     afterMount: () => {
+      photoCtl = wirePhotoPicker("mPhoto", entry.photo);
       document.querySelectorAll("#odoSeg button").forEach((btn) => {
         btn.addEventListener("click", () => {
           odoType = btn.dataset.val;
           document.querySelectorAll("#odoSeg button").forEach((b) => b.classList.toggle("active", b === btn));
           const lbl = document.querySelector('label[for="mOdoValue"]');
           if (lbl) lbl.textContent = odoType === "hours" ? "Engine hours" : "Mileage";
+          const remLbl = document.querySelector('label[for="mReminderOdo"]');
+          if (remLbl) remLbl.textContent = odoType === "hours" ? "Next due hours" : "Next due mileage";
         });
       });
       if (!isNew) {
@@ -798,7 +904,14 @@ function openMaintenanceSheet(v, entryId) {
       const products = document.getElementById("mProducts").value.trim();
       const cost = document.getElementById("mCost").value.trim();
       const notes = document.getElementById("mNotes").value.trim();
-      const data = { date, odoType, odoValue, service, products, cost, notes };
+      const reminderDate = document.getElementById("mReminderDate").value;
+      const reminderOdo = document.getElementById("mReminderOdo").value.trim();
+
+      if (odoValue !== "" && (isNaN(parseFloat(odoValue)) || parseFloat(odoValue) < 0)) { toast("Mileage/hours can't be negative"); return false; }
+      if (cost !== "" && (isNaN(parseFloat(cost)) || parseFloat(cost) < 0)) { toast("Cost can't be negative"); return false; }
+      if (reminderOdo !== "" && (isNaN(parseFloat(reminderOdo)) || parseFloat(reminderOdo) < 0)) { toast("Next due mileage/hours can't be negative"); return false; }
+
+      const data = { date, odoType, odoValue, service, products, cost, notes, reminderDate, reminderOdo, photo: photoCtl.get() };
       if (isNew) v.maintenance.push({ id: uid(), ...data });
       else Object.assign(entry, data);
       persistVehicle(v); renderContent();
