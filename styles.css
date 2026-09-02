@@ -184,6 +184,7 @@ a { color: inherit; }
 .hdr-title {
   font-size: 30px;
   line-height: 1.05;
+  color: var(--bar-fg);
 }
 
 .hdr-sub {
@@ -200,7 +201,7 @@ a { color: inherit; }
   width: var(--tap);
   height: var(--tap);
   margin: 0 -12px;
-  color: var(--paper);
+  color: var(--bar-fg);
   flex: none;
 }
 
@@ -429,7 +430,7 @@ a { color: inherit; }
   bottom: 8px;
   right: 8px;
   background: rgba(27,27,24,0.72);
-  color: var(--paper);
+  color: var(--bar-fg);
   font-size: 12px;
   font-weight: 600;
   padding: 6px 10px;
