@@ -436,6 +436,12 @@ a { color: inherit; }
 
 .row-sub.empty { color: var(--line-strong); font-style: italic; }
 
+.row-sub2 {
+  font-size: 12px;
+  color: var(--steel-soft);
+  margin-top: 2px;
+}
+
 .row-value {
   font-size: 15.5px;
   color: var(--steel);
@@ -577,6 +583,14 @@ a { color: inherit; }
   color: var(--steel);
 }
 .maint-total strong { color: var(--ink); font-family: "Oswald", sans-serif; font-size: 16px; }
+.maint-total-years {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--steel-soft);
+}
 
 .reminder-badge {
   flex: none;
@@ -710,6 +724,65 @@ a { color: inherit; }
 }
 .segmented button svg { width: 18px; height: 18px; }
 .segmented button.active { background: var(--ink); color: var(--paper); }
+
+.parts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+.part-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.part-row input {
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  border-radius: var(--radius-s);
+  padding: 10px;
+  font-size: 14.5px;
+  min-height: 42px;
+  color: var(--ink);
+  min-width: 0;
+}
+.part-row .part-name { flex: 2; }
+.part-row .part-number { flex: 1.4; }
+.part-row .part-cost { flex: 1; }
+.part-remove {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--steel-soft);
+}
+.part-remove svg { width: 16px; height: 16px; }
+
+.link-picker {
+  padding: 0 16px 8px;
+}
+.link-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--steel-soft);
+  margin: 10px 0 4px;
+}
+.link-group-label:first-child { margin-top: 0; }
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  font-size: 15px;
+}
+.link-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--rust);
+  flex: none;
+}
 
 .type-picker {
   display: flex;

@@ -288,6 +288,33 @@ const state = {
 
 function findVehicle(id) { return state.vehicles.find((v) => v.id === id); }
 
+// Per-vehicle maintenance search text, kept outside `state` since it's
+// transient UI text, not data that needs to persist or export.
+const maintSearch = {};
+
+// Most recent maintenance entry linked to a given fluid/filter/part item,
+// used to show "last changed" on its reference row.
+function lastServicedEntry(v, key, itemId) {
+  let best = null;
+  for (const e of v.maintenance) {
+    if (!Array.isArray(e.linkedItems) || !e.linkedItems.includes(`${key}:${itemId}`)) continue;
+    if (!best || (e.date || "") > (best.date || "")) best = e;
+  }
+  return best;
+}
+
+// Total spend grouped by calendar year, most recent first.
+function costByYear(v) {
+  const map = {};
+  for (const e of v.maintenance) {
+    const n = parseFloat(e.cost);
+    if (isNaN(n)) continue;
+    const year = (e.date || "").slice(0, 4) || "Unknown";
+    map[year] = (map[year] || 0) + n;
+  }
+  return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+}
+
 // Guards against malformed/hand-edited imported backups so a bad file
 // can't crash the app — always leaves a vehicle with valid shape.
 function normalizeVehicle(v) {
@@ -431,17 +458,22 @@ function renderRefTab(v, key) {
   return `
   <div class="section-label">${REF_LABELS[key]}</div>
   <div class="list-group">
-    ${items.map((it) => refRowHTML(key, it)).join("")}
+    ${items.map((it) => refRowHTML(v, key, it)).join("")}
     <button class="add-row" data-action="add-item" data-key="${key}">${ICONS.plus}Add ${refSingular(key)}</button>
   </div>`;
 }
 
-function refRowHTML(key, it) {
+function refRowHTML(v, key, it) {
   const summary = summarizeItem(it);
+  const last = lastServicedEntry(v, key, it.id);
+  const lastText = last
+    ? `Last changed ${formatDateLong(last.date)}${last.odoValue !== "" && last.odoValue != null ? ` · ${Number(last.odoValue).toLocaleString()} ${last.odoType === "hours" ? "hrs" : "mi"}` : ""}`
+    : "";
   return `<button class="row" data-action="open-item" data-key="${key}" data-id="${it.id}">
     <div class="row-main">
       <div class="row-label">${h(it.label)}</div>
       <div class="row-sub ${summary ? "" : "empty"}">${summary ? h(summary) : "Tap to add details"}</div>
+      ${lastText ? `<div class="row-sub2">${h(lastText)}</div>` : ""}
     </div>
     ${it.photo ? `<div class="row-thumb"><img src="${it.photo}" alt=""></div>` : ""}
     <div class="row-chev">${ICONS.chevronRight}</div>
@@ -449,27 +481,49 @@ function refRowHTML(key, it) {
 }
 
 function renderMaintenanceTab(v) {
-  const list = [...v.maintenance].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const total = v.maintenance.reduce((sum, e) => {
     const n = parseFloat(e.cost);
     return isNaN(n) ? sum : sum + n;
   }, 0);
+  const years = costByYear(v);
   const reminders = v.maintenance
     .map((e) => ({ e, info: reminderInfo(e, v) }))
     .filter((x) => x.info && (x.info.level === "overdue" || x.info.level === "soon"))
     .sort((a, b) => (a.info.level === b.info.level ? 0 : a.info.level === "overdue" ? -1 : 1));
+  const query = maintSearch[v.id] || "";
 
   return `
   <div style="padding:16px 16px 4px;">
     <button class="btn btn-primary" data-action="add-maintenance">${ICONS.plus}Log service</button>
   </div>
-  ${total > 0 ? `<div class="maint-total">Total spent&nbsp; <strong>$${total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong></div>` : ""}
+  ${total > 0 ? `
+  <div class="maint-total">
+    <div>Total spent&nbsp; <strong>$${total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</strong></div>
+    ${years.length > 1 ? `<div class="maint-total-years">${years.map(([y, amt]) => `<span>${h(y)}: $${amt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>`).join("")}</div>` : ""}
+  </div>` : ""}
   ${reminders.length ? `
   <div class="section-label">Reminders</div>
   <div class="list-group">${reminders.map(({ e, info }) => reminderRowHTML(e, info)).join("")}</div>` : ""}
-  ${list.length
-    ? `<div class="list-group" style="margin-top:8px;">${list.map((e) => maintRowHTML(e, v)).join("")}</div>`
-    : `<div class="empty-hint">No service logged yet. Tap “Log service” to record your first oil change, tire rotation, or repair.</div>`}`;
+  ${v.maintenance.length ? `
+  <div class="field" style="padding-top:14px;">
+    <input type="text" id="maintSearchInput" placeholder="Search service history" value="${h(query)}">
+  </div>` : ""}
+  <div id="maintLogListWrap">${maintenanceListHTML(v, query)}</div>`;
+}
+
+function maintenanceListHTML(v, query) {
+  const q = (query || "").trim().toLowerCase();
+  const list = [...v.maintenance]
+    .filter((e) => !q || [e.service, e.products, e.notes].some((x) => (x || "").toLowerCase().includes(q)))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  if (!v.maintenance.length) {
+    return `<div class="empty-hint">No service logged yet. Tap “Log service” to record your first oil change, tire rotation, or repair.</div>`;
+  }
+  if (!list.length) {
+    return `<div class="empty-hint">No service entries match “${h(query)}”.</div>`;
+  }
+  return `<div class="list-group" style="margin-top:8px;">${list.map((e) => maintRowHTML(e, v)).join("")}</div>`;
 }
 
 function reminderRowHTML(e, info) {
@@ -500,7 +554,7 @@ function maintRowHTML(e, v) {
     <div class="log-main">
       <div class="log-service">${h(e.service || "Service logged")}</div>
       <div class="log-meta">${h(odo)}</div>
-      ${e.products ? `<div class="log-products">${h(e.products)}</div>` : ""}
+      ${Array.isArray(e.partsUsed) && e.partsUsed.length ? `<div class="log-products">${h(e.partsUsed.map((p) => p.name).filter(Boolean).join(", "))}</div>` : (e.products ? `<div class="log-products">${h(e.products)}</div>` : "")}
       ${info ? `<div class="log-reminder ${info.level}">${h(info.text)}</div>` : ""}
     </div>
     ${e.photo ? `<div class="row-thumb"><img src="${e.photo}" alt=""></div>` : ""}
@@ -740,6 +794,8 @@ function openEditVehicleSheet(v) {
 }
 
 /* ---------- Overview field sheet ---------- */
+function isVinLikeLabel(label) { return /\bvin\b/i.test(label || ""); }
+
 function openOverviewFieldSheet(v, fieldId) {
   const isNew = !fieldId;
   const field = isNew ? { label: "", value: "", notes: "" } : v.overview.find((f) => f.id === fieldId);
@@ -748,6 +804,7 @@ function openOverviewFieldSheet(v, fieldId) {
   const body = `
     ${fieldText("ofLabel", "Field name", field.label, { placeholder: "e.g. Tire size" })}
     ${fieldText("ofValue", "Value", field.value, { placeholder: "e.g. 265/70R16" })}
+    <div class="field-hint" id="vinHint" style="padding:0 16px 8px;${isVinLikeLabel(field.label) ? "" : "display:none;"}">Standard VINs are 17 characters (letters and numbers, no I, O, or Q). Older vehicles and off-road frame numbers can be shorter — that's fine, this is just a heads-up.</div>
     ${fieldTextarea("ofNotes", "Notes", field.notes, { placeholder: "Optional" })}
     ${!isNew ? `<div class="btn-row"><button type="button" class="btn btn-danger" id="delOverviewBtn">${ICONS.trash}Delete field</button></div>` : ""}`;
 
@@ -755,6 +812,9 @@ function openOverviewFieldSheet(v, fieldId) {
     title: isNew ? "Add field" : "Edit field",
     bodyHtml: body,
     afterMount: () => {
+      document.getElementById("ofLabel").addEventListener("input", (e) => {
+        document.getElementById("vinHint").style.display = isVinLikeLabel(e.target.value) ? "" : "none";
+      });
       if (!isNew) {
         document.getElementById("delOverviewBtn").addEventListener("click", () => {
           if (confirm("Delete this field?")) {
@@ -839,15 +899,28 @@ function openRefItemSheet(v, key, itemId) {
 }
 
 /* ---------- Maintenance entry sheet ---------- */
+function partRowHTML(p) {
+  return `<div class="part-row" data-part-id="${p.id}">
+    <input type="text" class="part-name" placeholder="Part name" value="${h(p.name || "")}">
+    <input type="text" class="part-number" placeholder="Part #" value="${h(p.number || "")}">
+    <input type="number" min="0" class="part-cost" placeholder="Cost" value="${h(p.cost || "")}">
+    <button type="button" class="part-remove" data-remove-part aria-label="Remove part">${ICONS.close}</button>
+  </div>`;
+}
+
 function openMaintenanceSheet(v, entryId) {
   const isNew = !entryId;
   const defaultOdo = v.type === "dirtbike" ? "hours" : "miles";
   const entry = isNew
-    ? { date: todayISO(), odoType: defaultOdo, odoValue: "", service: "", products: "", cost: "", notes: "", reminderDate: "", reminderOdo: "", photo: null }
+    ? { date: todayISO(), odoType: defaultOdo, odoValue: "", service: "", products: "", cost: "", notes: "", reminderDate: "", reminderOdo: "", photo: null, partsUsed: [], linkedItems: [] }
     : v.maintenance.find((e) => e.id === entryId);
   if (!entry) return;
   let odoType = entry.odoType || defaultOdo;
   let photoCtl;
+
+  const linkKeys = ["fluids", "filters", "parts"];
+  const hasRefItems = linkKeys.some((k) => v[k].length > 0);
+  const linkedSet = new Set(entry.linkedItems || []);
 
   const body = `
     ${fieldText("mDate", "Date", entry.date, { type: "date" })}
@@ -860,10 +933,26 @@ function openMaintenanceSheet(v, entryId) {
     </div>
     ${fieldText("mOdoValue", odoType === "hours" ? "Engine hours" : "Mileage", entry.odoValue, { placeholder: "e.g. 84200", type: "number", min: 0 })}
     ${fieldTextarea("mService", "Service performed", entry.service, { placeholder: "e.g. Oil change, rotated tires" })}
-    ${fieldTextarea("mProducts", "Products used", entry.products, { placeholder: "e.g. Mobil 1 5W-30, Fram XG10575" })}
-    ${fieldText("mCost", "Cost", entry.cost, { placeholder: "e.g. 65.00", type: "number", min: 0 })}
+    ${fieldTextarea("mProducts", "Notes on products", entry.products, { placeholder: "e.g. used up the last quart from the shelf" })}
+    ${fieldText("mCost", "Total cost", entry.cost, { placeholder: "e.g. 65.00", type: "number", min: 0 })}
     ${fieldTextarea("mNotes", "Notes", entry.notes, { placeholder: "Optional" })}
     ${photoPickerHTML("mPhoto", entry.photo)}
+
+    <div class="section-label" style="padding-top:6px;">Parts used</div>
+    <div class="field-hint" style="padding:0 16px 6px;">Optional line items — name, part number, cost each.</div>
+    <div class="parts-list" id="partsRows">${(entry.partsUsed || []).map(partRowHTML).join("")}</div>
+    <button type="button" class="add-row" id="addPartBtn">${ICONS.plus}Add part</button>
+
+    ${hasRefItems ? `
+    <div class="section-label" style="padding-top:6px;">Related to</div>
+    <div class="field-hint" style="padding:0 16px 6px;">Link this service to fluids/filters/parts to track when they were last changed.</div>
+    <div class="link-picker">
+      ${linkKeys.map((key) => v[key].length ? `
+        <div class="link-group-label">${REF_LABELS[key]}</div>
+        ${v[key].map((it) => `<label class="link-row"><input type="checkbox" value="${key}:${it.id}" ${linkedSet.has(`${key}:${it.id}`) ? "checked" : ""}><span>${h(it.label)}</span></label>`).join("")}
+      ` : "").join("")}
+    </div>` : ""}
+
     <div class="section-label" style="padding-top:6px;">Remind me</div>
     ${fieldText("mReminderDate", "Next due date", entry.reminderDate || "", { type: "date" })}
     ${fieldText("mReminderOdo", odoType === "hours" ? "Next due hours" : "Next due mileage", entry.reminderOdo || "", { placeholder: "e.g. 87200", type: "number", min: 0 })}
@@ -884,6 +973,13 @@ function openMaintenanceSheet(v, entryId) {
           const remLbl = document.querySelector('label[for="mReminderOdo"]');
           if (remLbl) remLbl.textContent = odoType === "hours" ? "Next due hours" : "Next due mileage";
         });
+      });
+      document.getElementById("addPartBtn").addEventListener("click", () => {
+        document.getElementById("partsRows").insertAdjacentHTML("beforeend", partRowHTML({ id: uid(), name: "", number: "", cost: "" }));
+      });
+      document.getElementById("partsRows").addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-remove-part]");
+        if (btn) btn.closest(".part-row").remove();
       });
       if (!isNew) {
         document.getElementById("delMBtn").addEventListener("click", () => {
@@ -911,7 +1007,19 @@ function openMaintenanceSheet(v, entryId) {
       if (cost !== "" && (isNaN(parseFloat(cost)) || parseFloat(cost) < 0)) { toast("Cost can't be negative"); return false; }
       if (reminderOdo !== "" && (isNaN(parseFloat(reminderOdo)) || parseFloat(reminderOdo) < 0)) { toast("Next due mileage/hours can't be negative"); return false; }
 
-      const data = { date, odoType, odoValue, service, products, cost, notes, reminderDate, reminderOdo, photo: photoCtl.get() };
+      const partsUsed = Array.from(document.querySelectorAll("#partsRows .part-row")).map((row) => ({
+        id: row.dataset.partId,
+        name: row.querySelector(".part-name").value.trim(),
+        number: row.querySelector(".part-number").value.trim(),
+        cost: row.querySelector(".part-cost").value.trim(),
+      })).filter((p) => p.name || p.number || p.cost);
+      for (const p of partsUsed) {
+        if (p.cost !== "" && (isNaN(parseFloat(p.cost)) || parseFloat(p.cost) < 0)) { toast("Part cost can't be negative"); return false; }
+      }
+
+      const linkedItems = Array.from(document.querySelectorAll(".link-row input:checked")).map((cb) => cb.value);
+
+      const data = { date, odoType, odoValue, service, products, cost, notes, reminderDate, reminderOdo, photo: photoCtl.get(), partsUsed, linkedItems };
       if (isNew) v.maintenance.push({ id: uid(), ...data });
       else Object.assign(entry, data);
       persistVehicle(v); renderContent();
@@ -1075,6 +1183,15 @@ document.body.addEventListener("click", (e) => {
   if (!el) return;
   const fn = ACTIONS[el.dataset.action];
   if (fn) fn(el, e);
+});
+
+document.body.addEventListener("input", (e) => {
+  if (e.target.id !== "maintSearchInput") return;
+  const v = findVehicle(state.currentVehicleId);
+  if (!v) return;
+  maintSearch[v.id] = e.target.value;
+  const wrap = document.getElementById("maintLogListWrap");
+  if (wrap) wrap.innerHTML = maintenanceListHTML(v, e.target.value);
 });
 
 /* ============================================================
