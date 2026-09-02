@@ -55,3 +55,10 @@ backup** restores from that file (on this phone or a new one).
 - `manifest.json`, `sw.js` — what makes it installable and work offline
 - `icons/`, `fonts/` — the app icon and the display typeface, bundled
   locally so the app works fully offline once installed
+
+## Future upgrades
+
+See [`ROADMAP.md`](ROADMAP.md) for notes on what "more professional and
+efficient" would look like later — tests, CI, per-record storage, sync
+across devices, and so on. None of it is needed for the app to work well
+today; it's there so future work doesn't start from scratch.
