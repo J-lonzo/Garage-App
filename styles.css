@@ -31,6 +31,10 @@
   --line-strong: #C9C1AC;
   --danger: #A6321E;
 
+  /* Chrome bar (header/toast) — stays a dark bar in both themes, on purpose. */
+  --bar-bg: #1B1B18;
+  --bar-fg: #F3F0E8;
+
   --radius-s: 8px;
   --radius-m: 12px;
   --radius-l: 20px;
@@ -42,6 +46,47 @@
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* Night mode — applied automatically when the system is in dark mode
+   (unless the user forced Light), or forced on via the Settings toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #ECE7DC;
+    --ink-soft: #C7C0B0;
+    --paper: #171613;
+    --paper-raised: #221F1B;
+    --steel: #A8B2B9;
+    --steel-soft: #7C858C;
+    --rust: #E4653F;
+    --rust-dark: #C24E30;
+    --rust-tint: #3C2419;
+    --yellow: #E7B655;
+    --yellow-tint: #3B2E15;
+    --moss: #8CAB77;
+    --moss-tint: #232E1C;
+    --line: #322F28;
+    --line-strong: #443F35;
+    --danger: #E4603D;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #ECE7DC;
+  --ink-soft: #C7C0B0;
+  --paper: #171613;
+  --paper-raised: #221F1B;
+  --steel: #A8B2B9;
+  --steel-soft: #7C858C;
+  --rust: #E4653F;
+  --rust-dark: #C24E30;
+  --rust-tint: #3C2419;
+  --yellow: #E7B655;
+  --yellow-tint: #3B2E15;
+  --moss: #8CAB77;
+  --moss-tint: #232E1C;
+  --line: #322F28;
+  --line-strong: #443F35;
+  --danger: #E4603D;
+}
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
@@ -51,7 +96,7 @@ html, body {
 
 body {
   margin: 0;
-  background: var(--ink);
+  background: var(--bar-bg);
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
@@ -100,8 +145,8 @@ a { color: inherit; }
 
 #header {
   flex: none;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--bar-bg);
+  color: var(--bar-fg);
   padding-top: var(--safe-top);
   padding-left: calc(16px + var(--safe-left));
   padding-right: calc(16px + var(--safe-right));
@@ -917,8 +962,8 @@ a { color: inherit; }
   pointer-events: none;
 }
 .toast {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--bar-bg);
+  color: var(--bar-fg);
   font-size: 14px;
   font-weight: 500;
   padding: 12px 18px;

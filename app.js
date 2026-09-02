@@ -1,6 +1,24 @@
 "use strict";
 
 /* ============================================================
+   THEME — night mode, applied ASAP to avoid a flash of light UI
+   ============================================================ */
+const THEME_KEY = "garageTheme";
+function getTheme() {
+  try { return localStorage.getItem(THEME_KEY) || "auto"; } catch (err) { return "auto"; }
+}
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === "dark" || theme === "light") root.setAttribute("data-theme", theme);
+  else root.removeAttribute("data-theme");
+}
+function setTheme(theme) {
+  try { localStorage.setItem(THEME_KEY, theme); } catch (err) {}
+  applyTheme(theme);
+}
+applyTheme(getTheme());
+
+/* ============================================================
    ICONS — minimal line-icon set, single stroke style
    ============================================================ */
 const ICONS = {
@@ -1074,7 +1092,17 @@ function openNoteSheet(v, noteId) {
 /* ---------- Settings sheet (backup / restore) ---------- */
 function openSettingsSheet() {
   const total = state.vehicles.length;
+  const theme = getTheme();
   const body = `
+    <div class="field">
+      <label class="field-label">Appearance</label>
+      <div class="segmented" id="themeSeg">
+        <button type="button" data-val="auto" class="${theme === "auto" ? "active" : ""}">Auto</button>
+        <button type="button" data-val="light" class="${theme === "light" ? "active" : ""}">Light</button>
+        <button type="button" data-val="dark" class="${theme === "dark" ? "active" : ""}">Dark</button>
+      </div>
+      <div class="field-hint">Auto follows your phone's system setting.</div>
+    </div>
     <div class="field-hint" style="padding:0 16px 14px;">Everything you enter is stored only on this device, in this browser. It isn't synced or backed up automatically — export a backup now and then, especially before switching phones.</div>
     <div class="settings-group">
       <button class="row" id="exportBtn">
@@ -1098,6 +1126,12 @@ function openSettingsSheet() {
     showSave: false,
     bodyHtml: body,
     afterMount: () => {
+      document.querySelectorAll("#themeSeg button").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          setTheme(btn.dataset.val);
+          document.querySelectorAll("#themeSeg button").forEach((b) => b.classList.toggle("active", b === btn));
+        });
+      });
       document.getElementById("exportBtn").addEventListener("click", exportBackup);
       document.getElementById("importInput").addEventListener("change", (e) => importBackup(e.target.files[0]));
       document.getElementById("eraseBtn").addEventListener("click", () => {
