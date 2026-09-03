@@ -1,10 +1,13 @@
-const CACHE_NAME = "garage-cache-v8";
+const CACHE_NAME = "garage-cache-v9";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./cloud.js",
+  "./vendor/firebase/firebase-app.js",
+  "./vendor/firebase/firebase-auth.js",
+  "./vendor/firebase/firebase-firestore.js",
   "./manifest.json",
   "./fonts/Oswald.ttf",
   "./icons/icon-192.png",

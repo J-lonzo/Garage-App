@@ -2,9 +2,12 @@
 
 /* ============================================================
    CLOUD SYNC (Firebase) — optional. Loaded lazily by app.js via
-   dynamic import, so if this module (or the Firebase CDN it pulls
-   from) is ever unreachable, the core app still loads and works
-   fully offline — nothing here is required for local-only use.
+   dynamic import, so if this module is ever unreachable, the core
+   app still loads and works fully offline — nothing here is
+   required for local-only use. The library itself is vendored
+   locally (./vendor/firebase/) rather than fetched from Google's
+   CDN each time, so it's cached and loads instantly like the rest
+   of the app shell instead of depending on a CDN round trip.
 
    The apiKey below is a public client identifier, not a secret —
    Firebase access is controlled by sign-in + Firestore security
@@ -23,14 +26,14 @@
    module has loaded, handing in the few functions this needs to
    read/update local state.
    ============================================================ */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { initializeApp } from "./vendor/firebase/firebase-app.js";
 import {
   getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
   onAuthStateChanged, signOut,
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+} from "./vendor/firebase/firebase-auth.js";
 import {
   getFirestore, doc, deleteDoc, getDoc, getDocs, collection, writeBatch, onSnapshot,
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+} from "./vendor/firebase/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCKm1ionfckS0KS4F0z3oMlq-2Orc3PjlY",
