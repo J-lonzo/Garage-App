@@ -1172,7 +1172,13 @@ function openSettingsSheet() {
       const signInBtn = document.getElementById("signInBtn");
       if (signInBtn) signInBtn.addEventListener("click", () => {
         if (!cloud) { toast("Couldn't reach the sign-in service — check your connection"); return; }
-        cloud.signInWithGoogle().catch(() => toast("Sign-in failed"));
+        cloud.signInWithGoogle().catch((err) => {
+          if (err && err.code === "standalone-unsupported") {
+            toast("Open this app in Safari (not the Home Screen icon) to sign in");
+          } else {
+            toast("Sign-in failed");
+          }
+        });
       });
       const signOutBtn = document.getElementById("signOutBtn");
       if (signOutBtn) signOutBtn.addEventListener("click", () => {

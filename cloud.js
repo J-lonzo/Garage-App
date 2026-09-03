@@ -158,7 +158,25 @@ function watchCloudVehicles(uid) {
   });
 }
 
+// iOS's storage handling for installed standalone home-screen apps doesn't
+// reliably survive the navigate-away-to-Google-and-back that signInWithRedirect
+// requires — it tends to come back with no result and no error rather than
+// failing loudly, which is exactly the "did it 3 times, nothing happened"
+// symptom. Steer those users to regular Safari instead of attempting a flow
+// known to fail silently there.
+function isStandalone() {
+  return window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+}
+
+const REDIRECT_PENDING_KEY = "garageGoogleSignInPending";
+
 export async function signInWithGoogle() {
+  if (isStandalone()) {
+    const err = new Error("Google sign-in isn't reliable in the installed app on iOS — open this app in Safari to sign in.");
+    err.code = "standalone-unsupported";
+    throw err;
+  }
+  try { sessionStorage.setItem(REDIRECT_PENDING_KEY, "1"); } catch (e) {}
   await signInWithRedirect(fbAuth, new GoogleAuthProvider());
 }
 
@@ -195,5 +213,18 @@ export function initCloudSync(h) {
       if (cloudVehiclesUnsub) { cloudVehiclesUnsub(); cloudVehiclesUnsub = null; }
     }
   });
-  getRedirectResult(fbAuth).catch((err) => { console.error("Sign-in failed", err); hooks.toast("Sign-in failed"); });
+  let wasPending = false;
+  try { wasPending = sessionStorage.getItem(REDIRECT_PENDING_KEY) === "1"; } catch (e) {}
+  getRedirectResult(fbAuth)
+    .then((result) => {
+      try { sessionStorage.removeItem(REDIRECT_PENDING_KEY); } catch (e) {}
+      if (!result && wasPending) {
+        hooks.toast("Sign-in didn't complete — try again from Safari instead of the installed app");
+      }
+    })
+    .catch((err) => {
+      try { sessionStorage.removeItem(REDIRECT_PENDING_KEY); } catch (e) {}
+      console.error("Sign-in failed", err);
+      hooks.toast("Sign-in failed: " + (err.code || err.message || "unknown error"));
+    });
 }
