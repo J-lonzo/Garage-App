@@ -1,9 +1,10 @@
-const CACHE_NAME = "garage-cache-v6";
+const CACHE_NAME = "garage-cache-v8";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./cloud.js",
   "./manifest.json",
   "./fonts/Oswald.ttf",
   "./icons/icon-192.png",
@@ -34,6 +35,11 @@ self.addEventListener("activate", (event) => {
 // the cache only when the network request fails — i.e. offline.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // Only manage our own same-origin app-shell files here. Cross-origin
+  // requests (Google Sign-In, Firestore) must go straight to the network
+  // untouched — intercepting/caching them can break auth redirects and
+  // Firestore's realtime connection.
+  if (new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     fetch(event.request, { cache: "no-store" })
       .then((response) => {

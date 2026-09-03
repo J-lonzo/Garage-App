@@ -1,6 +1,38 @@
 "use strict";
 
 /* ============================================================
+   CLOUD SYNC (Firebase) — optional, loaded lazily from cloud.js.
+   Sign-in and Firestore sync live in a separate module, dynamically
+   imported below, so that a blocked/unreachable Firebase CDN (no
+   connection, an outage) can never prevent the core app — which is
+   fully local and offline-capable — from loading. Every call site
+   in this file guards on `cloud` being non-null before using it.
+   ============================================================ */
+let cloud = null;
+function loadCloudModule() {
+  import("./cloud.js")
+    .then((mod) => {
+      cloud = mod;
+      cloud.initCloudSync({
+        getVehicles: () => state.vehicles,
+        setVehicles: (list) => { state.vehicles = list; },
+        render: () => render(),
+        normalizeVehicle,
+        dbPut,
+        dbDelete,
+        findVehicle,
+        toast,
+        onChange: () => {
+          if (state.screen === "vehicle" && !findVehicle(state.currentVehicleId)) state.screen = "garage";
+          render();
+        },
+      });
+    })
+    .catch((err) => console.warn("Cloud sync unavailable", err));
+}
+loadCloudModule();
+
+/* ============================================================
    THEME — night mode, applied ASAP to avoid a flash of light UI
    ============================================================ */
 const THEME_KEY = "garageTheme";
@@ -203,6 +235,7 @@ async function dbDelete(id) {
 function persistVehicle(v) {
   v.updatedAt = Date.now();
   dbPut(v).catch(() => toast("Could not save — storage may be full"));
+  if (cloud) cloud.pushVehicleToCloud(v);
 }
 
 /* ============================================================
@@ -790,6 +823,7 @@ function openEditVehicleSheet(v) {
         if (confirm(`Delete ${displayName(v)}? This removes all its fluids, filters, parts, and service history. This can't be undone.`)) {
           state.vehicles = state.vehicles.filter((x) => x.id !== v.id);
           dbDelete(v.id).catch(() => {});
+          if (cloud) cloud.deleteVehicleFromCloud(v.id);
           state.screen = "garage";
           render();
           toast("Vehicle deleted");
@@ -1093,7 +1127,16 @@ function openNoteSheet(v, noteId) {
 function openSettingsSheet() {
   const total = state.vehicles.length;
   const theme = getTheme();
+  const cloudUser = cloud ? cloud.getCloudUser() : null;
+  const account = cloudUser
+    ? `<button class="row" id="signOutBtn">
+        <div class="row-main"><div class="row-label">${h(cloudUser.displayName || cloudUser.email || "Signed in")}</div><div class="row-sub">Syncing across your devices — tap to sign out</div></div>
+      </button>`
+    : `<button class="row" id="signInBtn">
+        <div class="row-main"><div class="row-label">Sign in with Google</div><div class="row-sub">${cloud ? "Sync your garage across your devices" : "Loading… check your connection"}</div></div>
+      </button>`;
   const body = `
+    <div class="settings-group">${account}</div>
     <div class="field">
       <label class="field-label">Appearance</label>
       <div class="segmented" id="themeSeg">
@@ -1103,7 +1146,7 @@ function openSettingsSheet() {
       </div>
       <div class="field-hint">Auto follows your phone's system setting.</div>
     </div>
-    <div class="field-hint" style="padding:0 16px 14px;">Everything you enter is stored only on this device, in this browser. It isn't synced or backed up automatically — export a backup now and then, especially before switching phones.</div>
+    <div class="field-hint" style="padding:0 16px 14px;">${cloudUser ? "Signed in, your garage syncs to this account and stays available on any device you sign into." : "Everything you enter is stored only on this device, in this browser, unless you sign in above. Export a backup now and then either way, especially before switching phones."}</div>
     <div class="settings-group">
       <button class="row" id="exportBtn">
         <div class="row-main"><div class="row-label">Export backup</div><div class="row-sub">Save all vehicle data as a file</div></div>
@@ -1126,6 +1169,17 @@ function openSettingsSheet() {
     showSave: false,
     bodyHtml: body,
     afterMount: () => {
+      const signInBtn = document.getElementById("signInBtn");
+      if (signInBtn) signInBtn.addEventListener("click", () => {
+        if (!cloud) { toast("Couldn't reach the sign-in service — check your connection"); return; }
+        cloud.signInWithGoogle().catch(() => toast("Sign-in failed"));
+      });
+      const signOutBtn = document.getElementById("signOutBtn");
+      if (signOutBtn) signOutBtn.addEventListener("click", () => {
+        if (cloud) cloud.signOutOfCloud();
+        toast("Signed out — this device is local-only now");
+        closeSheetNow();
+      });
       document.querySelectorAll("#themeSeg button").forEach((btn) => {
         btn.addEventListener("click", () => {
           setTheme(btn.dataset.val);
@@ -1135,8 +1189,11 @@ function openSettingsSheet() {
       document.getElementById("exportBtn").addEventListener("click", exportBackup);
       document.getElementById("importInput").addEventListener("change", (e) => importBackup(e.target.files[0]));
       document.getElementById("eraseBtn").addEventListener("click", () => {
-        if (confirm("Erase all vehicles and their data? This cannot be undone.")) {
-          Promise.all(state.vehicles.map((v) => dbDelete(v.id))).then(() => {
+        const warnCloud = cloudUser ? " This also erases it from your synced account." : "";
+        if (confirm(`Erase all vehicles and their data?${warnCloud} This cannot be undone.`)) {
+          const ids = state.vehicles.map((v) => v.id);
+          Promise.all(ids.map((id) => dbDelete(id))).then(() => {
+            if (cloud) ids.forEach((id) => cloud.deleteVehicleFromCloud(id));
             state.vehicles = [];
             state.screen = "garage";
             render();
@@ -1180,6 +1237,7 @@ function importBackup(file) {
       render();
       toast("Backup imported");
       closeSheetNow();
+      if (cloud) cloud.reconcileCloudWithLocal();
     } catch (err) {
       toast("That file could not be read as a backup");
     }

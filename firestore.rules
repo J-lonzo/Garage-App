@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Every document lives under users/{uid}/... — a signed-in user can only
+// read or write their own subtree, keyed by their Firebase Auth uid.
+// Nobody, including other signed-in users, can touch another user's data.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
